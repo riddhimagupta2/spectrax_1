@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 export interface ReplayFrame {
   timestamp: number;
@@ -95,6 +96,7 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const controlsRef = useRef<OrbitControls | null>(null);
   
   // Fallback refs
   const jointsRef = useRef<THREE.Mesh[]>([]);
@@ -135,6 +137,14 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
     renderer.setSize(width, height);
     mountRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.maxPolarAngle = Math.PI / 2 + 0.1; // allow looking slightly from below
+    controls.minDistance = 1.0;
+    controls.maxDistance = 10.0;
+    controlsRef.current = controls;
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
     scene.add(ambientLight);
@@ -335,6 +345,7 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
       if (mountRef.current && rendererRef.current) {
         mountRef.current.removeChild(rendererRef.current.domElement);
       }
+      controlsRef.current?.dispose();
       rendererRef.current?.dispose();
     };
   }, [frames, modelUrl]);
@@ -432,9 +443,11 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
             // Update model matrix since we moved it, so FK calculation has the correct parent offsets!
             modelGroupRef.current.updateMatrixWorld(true);
 
-            // --- Dynamic Camera Tracking ---
-            if (cameraRef.current) {
-                const lookTarget = new THREE.Vector3().lerpVectors(hipCenter, shoulderCenter, 0.5);
+            // --- Dynamic Camera Tracking & Orbit Target Sync ---
+            const lookTarget = new THREE.Vector3().lerpVectors(hipCenter, shoulderCenter, 0.5);
+            if (controlsRef.current) {
+                controlsRef.current.target.lerp(lookTarget, 0.05);
+            } else if (cameraRef.current) {
                 cameraRef.current.lookAt(lookTarget);
             }
         }
@@ -597,6 +610,10 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
           const targetBoneColor = isBadBone ? (mistakeColor || COLOR_RED) : baseColor;
           (bone.line.material as THREE.LineBasicMaterial).color.lerp(targetBoneColor, 0.2);
         });
+      }
+
+      if (controlsRef.current) {
+        controlsRef.current.update();
       }
 
       if (sceneRef.current && cameraRef.current && rendererRef.current) {
